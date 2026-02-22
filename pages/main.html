@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AmkyawDev - Mining Card Game</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Telegram Web App SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
+    <!-- Babylon.js (Game engine အနေနဲ့ တစ်ခုတည်းပဲသုံး) -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Poppins', sans-serif; }
+        #info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 30px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            z-index: 10;
+            pointer-events: none;
+        }
+        #score-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            z-index: 10;
+            pointer-events: none;
+        }
+        .control-btn {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            color: #333;
+            padding: 12px 30px;
+            border-radius: 40px;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            z-index: 20;
+            transition: all 0.3s;
+        }
+        .control-btn:hover {
+            transform: translateX(-50%) scale(1.05);
+            background: #f0f0f0;
+        }
+        .back-btn {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-weight: bold;
+            border: 1px solid rgba(255,255,255,0.3);
+            cursor: pointer;
+            z-index: 20;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+        .back-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+    </style>
+</head>
+<body>
+    <!-- UI Elements -->
+    <div id="info-panel">
+        🎴 Mining Cards · Click to Flip
+    </div>
+    <div id="score-panel">
+        💎 Score: <span id="score-value">0</span>
+    </div>
+    
+    <a href="../index.html" class="back-btn">
+        ← Back to 3D Home
+    </a>
+    
+    <button class="control-btn" id="dealBtn">
+        🎲 Deal New Cards
+    </button>
+
+    <!-- Babylon.js Canvas -->
+    <canvas id="gameCanvas" style="width: 100%; height: 100%; outline: none;"></canvas>
+
+    <script>
+        // Telegram Web App
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+        
+        // Back button
+        tg.BackButton.show();
+        tg.BackButton.onClick(function() {
+            window.location.href = '../index.html';
+        });
+
+        // Babylon.js Engine Setup
+        const canvas = document.getElementById('gameCanvas');
+        const engine = new BABYLON.Engine(canvas, true);
+        
+        // Scene ဆောက်မယ်
+        const scene = new BABYLON.Scene(engine);
+        
+        // Camera - ArcRotateCamera သုံးမယ် (ပတ်ကြည့်လို့ရအောင်)
+        const camera = new BABYLON.ArcRotateCamera(
+            "camera", 
+            -Math.PI / 2, Math.PI / 3, 
+            15, 
+            new BABYLON.Vector3(0, 2, 0), 
+            scene
+        );
+        camera.attachControl(canvas, true);
+        camera.lowerRadiusLimit = 8;
+        camera.upperRadiusLimit = 20;
+        camera.wheelPrecision = 50;
+        
+        // Lighting - အလင်းရောင်
+        // ၁။ Hemispheric light (ပတ်ဝန်းကျင်အလင်း)
+        const hemiLight = new BABYLON.HemisphericLight(
+            "hemiLight", 
+            new BABYLON.Vector3(0, 1, 0), 
+            scene
+        );
+        hemiLight.intensity = 0.6;
+        
+        // ၂။ Directional light (အရိပ်အတွက်)
+        const dirLight = new BABYLON.DirectionalLight(
+            "dirLight", 
+            new BABYLON.Vector3(0.5, -1, 0.5), 
+            scene
+        );
+        dirLight.position = new BABYLON.Vector3(5, 10, 5);
+        dirLight.intensity = 0.8;
+        
+        // ၃။ Point lights (အရောင်စုံအလှ)
+        const colors = [
+            new BABYLON.Color3(0.2, 0.5, 1.0),  // အပြာ
+            new BABYLON.Color3(1.0, 0.3, 0.3),  // အနီ
+            new BABYLON.Color3(0.3, 1.0, 0.3),  // အစိမ်း
+            new BABYLON.Color3(1.0, 0.8, 0.2)   // အဝါ
+        ];
+        
+        const positions = [
+            new BABYLON.Vector3(3, 1, 3),
+            new BABYLON.Vector3(-3, 1, -3),
+            new BABYLON.Vector3(3, 1, -3),
+            new BABYLON.Vector3(-3, 1, 3)
+        ];
+        
+        positions.forEach((pos, i) => {
+            const light = new BABYLON.PointLight(`light${i}`, pos, scene);
+            light.diffuse = colors[i];
+            light.intensity = 0.5;
+            
+            // Light နေရာမှာ မီးလုံးလေး ထည့်မယ်
+            const sphere = BABYLON.MeshBuilder.CreateSphere(`lightSphere${i}`, { diameter: 0.2 }, scene);
+            sphere.position = pos;
+            const material = new BABYLON.StandardMaterial(`lightMat${i}`, scene);
+            material.emissiveColor = colors[i];
+            material.diffuseColor = colors[i];
+            sphere.material = material;
+        });
+
+        // Ground (မြေပြင်)
+        const ground = BABYLON.MeshBuilder.CreateGround(
+            "ground", 
+            { width: 15, height: 15, subdivisions: 4 }, 
+            scene
+        );
+        
+        // Ground material
+        const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+        groundMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.2);
+        groundMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        groundMat.emissiveColor = new BABYLON.Color3(0.02, 0.02, 0.05);
+        ground.material = groundMat;
+        ground.position.y = -0.5;
+        
+        // Grid (ဇယားကွက်)
+        const grid = BABYLON.MeshBuilder.CreateGround(
+            "grid", 
+            { width: 15, height: 15, subdivisions: 20 }, 
+            scene
+        );
+        const gridMat = new BABYLON.StandardMaterial("gridMat", scene);
+        gridMat.wireframe = true;
+        gridMat.alpha = 0.3;
+        gridMat.diffuseColor = new BABYLON.Color3(0.3, 0.6, 1.0);
+        grid.material = gridMat;
+        grid.position.y = -0.49;
+
+        // Game Variables
+        let cards = [];
+        let score = 0;
+        const scoreElement = document.getElementById('score-value');
+        
+        // ဖဲချပ်တွေ ဖန်တီးမယ့် Function
+        function createCard(position, color, isGold = false) {
+            // Card body
+            const card = BABYLON.MeshBuilder.CreateBox(
+                "card", 
+                { width: 1.2, height: 0.1, depth: 1.8 }, 
+                scene
+            );
+            card.position = position;
+            
+            // Card material
+            const mat = new BABYLON.StandardMaterial("cardMat", scene);
+            if (isGold) {
+                mat.diffuseColor = new BABYLON.Color3(1.0, 0.8, 0.2);
+                mat.emissiveColor = new BABYLON.Color3(0.3, 0.2, 0.0);
+                mat.specularColor = new BABYLON.Color3(1.0, 0.9, 0.5);
+            } else {
+                mat.diffuseColor = color;
+                mat.emissiveColor = new BABYLON.Color3(0.1, 0.05, 0.1);
+                mat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+            }
+            card.material = mat;
+            
+            // Add border (frame)
+            const edgeMat = new BABYLON.StandardMaterial("edgeMat", scene);
+            edgeMat.diffuseColor = new BABYLON.Color3(1, 1, 1);
+            edgeMat.emissiveColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+            
+            const edges = BABYLON.MeshBuilder.CreateLines("edges", {
+                points: [
+                    new BABYLON.Vector3(-0.6, 0.06, -0.9),
+                    new BABYLON.Vector3(0.6, 0.06, -0.9),
+                    new BABYLON.Vector3(0.6, 0.06, 0.9),
+                    new BABYLON.Vector3(-0.6, 0.06, 0.9),
+                    new BABYLON.Vector3(-0.6, 0.06, -0.9)
+                ]
+            }, scene);
+            edges.color = new BABYLON.Color3(1, 1, 1);
+            edges.position = position;
+            
+            return { card, edges, isGold };
+        }
+
+        // ဖဲချပ်တွေကို စီစဉ်မယ့် Function
+        function dealCards() {
+            // အဟောင်းတွေကို ဖျက်မယ်
+            cards.forEach(c => {
+                c.card.dispose();
+                c.edges.dispose();
+            });
+            cards = [];
+            
+            const rows = 3;
+            const cols = 4;
+            const spacing = 2.2;
+            const startX = - (cols - 1) * spacing / 2;
+            const startZ = - (rows - 1) * spacing / 2;
+            
+            for (let i = 0; i < rows; i++) {
+                for (let j = 0; j < cols; j++) {
+                    // ကျပန်းအရောင်
+                    const hue = Math.random() * 0.3 + 0.5; // purple-blue range
+                    const color = new BABYLON.Color3(hue, 0.3, 0.8);
+                    
+                    // 20% က ရွှေရောင် (အထူးဆု)
+                    const isGold = Math.random() < 0.2;
+                    
+                    const x = startX + j * spacing;
+                    const z = startZ + i * spacing;
+                    const y = 0;
+                    
+                    const card = createCard(new BABYLON.Vector3(x, y, z), color, isGold);
+                    
+                    // Card ကို click လို့ရအောင် action manager ထည့်မယ်
+                    card.card.actionManager = new BABYLON.ActionManager(scene);
+                    
+                    // Pick action (မောက်စ်နဲ့ထောက်တဲ့အခါ)
+                    card.card.actionManager.registerAction(
+                        new BABYLON.ExecuteCodeAction(
+                            BABYLON.ActionManager.OnPickTrigger,
+                            function(evt) {
+                                const sourceCard = evt.meshUnderPointer;
+                                const cardData = cards.find(c => c.card === sourceCard);
+                                if (cardData) {
+                                    // ဖဲချပ်ကို လှန်လိုက်မယ် (rotate)
+                                    const rotateAnim = new BABYLON.Animation(
+                                        "rotateAnim",
+                                        "rotation.y",
+                                        30,
+                                        BABYLON.Animation.ANIMATIONTYPE_FLOAT,
+                                        BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+                                    );
+                                    
+                                    const keys = [];
+                                    keys.push({ frame: 0, value: 0 });
+                                    keys.push({ frame: 15, value: Math.PI });
+                                    
+                                    rotateAnim.setKeys(keys);
+                                    sourceCard.animations = [];
+                                    sourceCard.animations.push(rotateAnim);
+                                    
+                                    scene.beginAnimation(sourceCard, 0, 15, false);
+                                    
+                                    // ရွှေဖဲဆိုရင် score တိုးမယ်
+                                    if (cardData.isGold) {
+                                        score += 10;
+                                        scoreElement.textContent = score;
+                                        
+                                        // ရွှေရောင်စက်ဝိုင်းလေး ထည့်မယ် (effect)
+                                        const ring = BABYLON.MeshBuilder.CreateTorus(
+                                            "ring", 
+                                            { diameter: 1.5, thickness: 0.05 }, 
+                                            scene
+                                        );
+                                        ring.position = sourceCard.position.clone();
+                                        ring.position.y += 0.2;
+                                        
+                                        const ringMat = new BABYLON.StandardMaterial("ringMat", scene);
+                                        ringMat.emissiveColor = new BABYLON.Color3(1, 0.8, 0);
+                                        ringMat.diffuseColor = new BABYLON.Color3(1, 0.9, 0);
+                                        ring.material = ringMat;
+                                        
+                                        // Ring ပျောက်သွားအောင် animate
+                                        setTimeout(() => {
+                                            ring.dispose();
+                                        }, 500);
+                                    }
+                                }
+                            }
+                        )
+                    );
+                    
+                    cards.push(card);
+                }
+            }
+        }
+
+        // စတဲ့အချိန်မှာ ဖဲချပ်တွေ ချပေးမယ်
+        dealCards();
+
+        // Deal button နှိပ်ရင် ဖဲချပ်အသစ်ချပေးမယ်
+        document.getElementById('dealBtn').addEventListener('click', () => {
+            score = 0;
+            scoreElement.textContent = score;
+            dealCards();
+        });
+
+        // Render loop
+        engine.runRenderLoop(() => {
+            // ဖဲချပ်တွေကို နည်းနည်းလေး floating လုပ်မယ်
+            cards.forEach((c, index) => {
+                c.card.position.y = Math.sin(Date.now() * 0.002 + index) * 0.1;
+                c.edges.position.y = c.card.position.y;
+            });
+            
+            scene.render();
+        });
+
+        // Window resize handler
+        window.addEventListener('resize', () => {
+            engine.resize();
+        });
+    </script>
+</body>
+  </html>
